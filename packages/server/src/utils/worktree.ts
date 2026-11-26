@@ -1116,6 +1116,8 @@ export async function isPaseoOwnedWorktreeCwd(
     }
   }
 
+  const worktreesBaseRoot = resolvePaseoWorktreesBaseRoot(options);
+
   // Worktrees placed at plugin-chosen paths are
   // proven by the marker createWorktree writes unconditionally: a
   // paseo/worktree.json in the worktree's git admin dir, with the path
@@ -1123,7 +1125,7 @@ export async function isPaseoOwnedWorktreeCwd(
   // is not proof — it lives in a git admin dir a user can copy into a
   // hand-made directory that git does not know about.
   if (options?.knownGitCommonDir !== null) {
-    const metadataProof = await resolveMetadataOwnedWorktree(cwd, repoRoot);
+    const metadataProof = await resolveMetadataOwnedWorktree(cwd, repoRoot, worktreesBaseRoot);
     if (metadataProof) {
       return {
         allowed: true,
@@ -1134,7 +1136,6 @@ export async function isPaseoOwnedWorktreeCwd(
     }
   }
 
-  const worktreesBaseRoot = resolvePaseoWorktreesBaseRoot(options);
   const relativePath = await getOwnershipRelativePath(worktreesBaseRoot, resolvedCwd);
 
   // Ownership is defined by the path living under <worktrees-root>/<hash>/<slug>[/...].
@@ -1164,6 +1165,7 @@ export async function isPaseoOwnedWorktreeCwd(
 async function resolveMetadataOwnedWorktree(
   cwd: string,
   repoRoot: string | undefined,
+  worktreesBaseRoot: string,
 ): Promise<{ worktreePath: string; worktreeRoot: string } | null> {
   try {
     const root = await findPaseoWorktreeRootForCwd(cwd);
@@ -1171,6 +1173,10 @@ async function resolveMetadataOwnedWorktree(
     const candidate = await normalizePathForOwnership(root);
     if (repoRoot !== undefined && candidate === (await normalizePathForOwnership(repoRoot)))
       return null;
+    // The marker search walks up from a deleted worktree to any Paseo worktree
+    // above it. One that holds the worktrees root, such as a daemon home kept
+    // inside another Paseo worktree, owns none of the worktrees beneath it.
+    if ((await getOwnershipRelativePath(candidate, worktreesBaseRoot)) !== null) return null;
     const { entries } = await readGitWorktreeEntries(candidate);
     for (const entry of entries) {
       if ((await normalizePathForOwnership(entry.path)) === candidate) {
